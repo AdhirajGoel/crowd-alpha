@@ -8,7 +8,10 @@ os.umask(0o077)
 if __name__=='__main__':
     if any(flag in sys.argv for flag in ('--setup','--credentials','--resolve-accounts','--check','--schedule','--unschedule','--demo','--smoke-engine')):
         import onboarding
-        onboarding.main()
+        try:
+            onboarding.main()
+        except (ValueError, RuntimeError, OSError) as error:
+            raise SystemExit(f"Crowd Alpha setup: {error}") from None
     else:
         import market_brief
         market_brief.main()
