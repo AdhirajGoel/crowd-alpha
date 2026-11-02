@@ -87,7 +87,9 @@ def main():
     if args.unschedule:
         path=Path.home()/'Library/LaunchAgents/org.crowd-alpha.daily.plist'
         if path.exists():
-            subprocess.run(['launchctl','bootout',f'gui/{os.getuid()}',str(path)],capture_output=True)
+            result=subprocess.run(['launchctl','bootout',f'gui/{os.getuid()}',str(path)],capture_output=True)
+            if result.returncode:
+                raise RuntimeError('Could not stop the schedule; its plist was preserved. Resolve the launchctl failure and retry --unschedule.')
             path.unlink()
         print('Crowd Alpha schedule removed.');return
     config=m.initialize()

@@ -454,14 +454,15 @@ def market_data(run, symbols, manifest):
             break
     else:
         raise RuntimeError("Alpaca pagination exceeded expected bounds")
-    if not bars.get("SPY"):
-        raise RuntimeError("Alpaca returned no SPY bars; market data cannot be verified")
     # Exclude the current session until regular trading has closed. Retain provider timestamps.
     current = end.astimezone(ET)
     today = current.date()
     for symbol in bars:
         bars[symbol] = sorted({b["t"]: b for b in bars[symbol]
             if parse(b["t"]).astimezone(ET).date() < today or current.hour >= 16}.values(), key=lambda b: b["t"])
+    bars = {symbol: values for symbol, values in bars.items() if values}
+    if not bars.get("SPY"):
+        raise RuntimeError("Alpaca returned no completed SPY bars; market data cannot be verified")
     result = {"feed": feed, "adjustment": "all", "as_of": stamp(end), "bars": bars,
               "missing_symbols": sorted(symbols - bars.keys()),
               "limitations": "Adjusted daily OHLC; unavailable symbols remain unverified. No option P&L or intraday trigger ordering inferred."}
@@ -830,14 +831,15 @@ def publish_record(record, due_day):
         temporary.replace(output)
     live_memory.publish(WORK, record)
     state = read(WORK / "status.json", {})
+    manifest = read(record / "source/manifest.json")
+    cutoff = manifest["end"]
     # Backfilled history must never roll the current account memory backwards.
-    if due_day >= state.get("last_success_due_day", ""):
-        cutoff = read(record / "source/manifest.json")["end"]
-        if cutoff >= read(WORK / "live/current.json", {}).get("as_of", ""):
-            save(WORK / "memory.json", read(record / "source/memory-after.json"))
-            macro = read(record / "source/macro.json")
-            if macro:
-                save(WORK / "macro-latest.json", {"as_of": macro["as_of"], "fingerprints": macro["fingerprints"]})
+    if due_day >= state.get("last_success_due_day", "") and cutoff >= read(WORK / "live/current.json", {}).get("as_of", ""):
+        save(WORK / "memory.json", read(record / "source/memory-after.json"))
+        macro = read(record / "source/macro.json")
+        if macro:
+            save(WORK / "macro-latest.json", {"as_of": macro["as_of"], "fingerprints": macro["fingerprints"]})
+    if not manifest.get("ad_hoc") and due_day >= state.get("last_success_due_day", ""):
         save(WORK / "status.json", {"last_success_due_day": due_day, "completed_at": stamp(now()),
              "pdf": str(output), "provenance": str(record / "index.html"), "state": "complete"})
 
@@ -846,7 +848,7 @@ def run_job(scheduled=False, stage="all", test_run=False, day=None):
     config = read(WORK / "config.json")
     current = now()
     local = current.astimezone(PT)
-    due_day = day or (local.date() if local.hour >= REPORT_HOUR or not scheduled else (local - timedelta(days=1)).date()).isoformat()
+    due_day = day or (local.date() if local.hour >= REPORT_HOUR or test_run else (local - timedelta(days=1)).date()).isoformat()
     state = read(WORK / "status.json", {})
     record_id = due_day
     if test_run:
@@ -874,11 +876,11 @@ def run_job(scheduled=False, stage="all", test_run=False, day=None):
     run.mkdir(parents=True, exist_ok=True)
     manifest = read(run / "manifest.json")
     if not manifest:
-        if day is not None:
-            manifest = daily_manifest(day)
-        else:
+        if test_run:
             end = current - timedelta(seconds=20)
-            manifest = {"due_day": due_day, "start": stamp(end - timedelta(hours=24)), "end": stamp(end)}
+            manifest = {"due_day": due_day, "start": stamp(end - timedelta(hours=24)), "end": stamp(end), "ad_hoc": True}
+        else:
+            manifest = daily_manifest(due_day)
         save(run / "manifest.json", manifest)
     historical = parse(manifest["end"]).astimezone(PT).date() < local.date()
     if historical and not manifest.get("reconstructed_at"):
@@ -894,77 +896,80 @@ def run_job(scheduled=False, stage="all", test_run=False, day=None):
         save(runtime / "environment.json", {"python": sys.version, "executable": sys.executable,
              "engine_version": codex_version, "engine": config["engine"], "model": config["model"],
              "accounts": ACCOUNTS, "timezone": str(PT), "captured_at": stamp(now())})
-    bundle = collect(run, manifest, config)
-    if stage == "collect":
-        return
-    selection = triage(run, bundle, config)
-    if stage == "triage":
-        return
-    images = images_for(run, selection, config)
-    previous = prior_record(parse(manifest["end"]))
-    if previous:
-        provenance.verify(previous)
-    memory = read(previous / "source/memory-after.json", {"account_notes": [], "calls": []}) if previous else {"account_notes": [], "calls": []}
-    symbols = {"SPY", "QQQ", "IWM"}
-    symbols.update(s for p in selection["posts"] if p["relevant"] for s in p["symbols"] if SYMBOL.fullmatch(s))
-    symbols.update(c["symbol"] for c in memory["calls"] if c["status"] == "pending")
-    market = market_data(run, symbols, manifest)
-    previous_macro = read(previous / "source/macro.json", {}) if previous else {}
-    macro = macro_data.collect(run, parse(manifest["end"]), previous_macro,
-                               historical_source=previous / "source" if historical and previous else None,
-                               historical=historical)
-    if (run / "memory-before.json").exists():
-        memory = read(run / "memory-before.json")
-    else:
-        save(run / "memory-incoming.json", memory)
-        memory = evaluate(memory, market)
-        save(run / "memory-before.json", memory)
-    if stage == "market":
-        return
-    if not (run / "live-before.json").exists():
-        context = live_memory.context(WORK)
-        context["current_view"] = read(previous / "source/live-after.json", {}) if previous else {}
-        context["discussion_notes"] = [n for n in context["discussion_notes"] if parse(n["recorded_at"]) <= parse(manifest["end"])]
-        save(run / "live-before.json", context)
-    live_before = read(run / "live-before.json")
-    data = {"posts": bundle, "triage": selection, "images": images, "market": compact_market(market),
-            "memory": memory_view(memory), "accounts": list(ACCOUNTS.values()), "macro": macro, "live_memory": live_before,
-            "word_budget": layout_brief({"paragraphs": []}, manifest)[1], "collection_window": manifest,
-            "historical_policy": "Use only evidence available by the collection cutoff. Later retrieval is a retrospective reconstruction. Do not use later market outcomes or newer memory. Explicitly date stale macro snapshots; missing historical releases remain unverified."}
-    result = agent(run, "brief", SYNTHESIS, data, BRIEF, config, [p["path"] for p in images["photos"]])
-    verify_brief(result, bundle, macro_required=True, macro=macro)
-    output = ROOT / (parse(manifest["end"]).astimezone(PT).date().isoformat() + "-market-brief.pdf")
-    candidate = run / output.name
-    for attempt in range(4):
-        _, metrics = layout_brief(result, manifest)
-        save(run / "layout.json", metrics)
-        if render(result, manifest, candidate):
-            break
-        if attempt == 3:
-            raise RuntimeError("Brief still exceeds 480 total words; no PDF published")
-        prior_memory = {k: result[k] for k in ("market_view", "account_memory", "new_calls")}
-        result = agent(run, f"shorten-{attempt}", SYNTHESIS + "\nThe supplied draft exceeds 480 total words. "
-            f"Remove at least {metrics['excess_words']} words from its paragraphs. "
-            "Preserve useful conditions and uncertainty; update claim mappings. Keep market_view, account_memory and new_calls unchanged.",
-            {"draft": result, "word_budget": metrics}, BRIEF, config)
-        if any(result[k] != value for k, value in prior_memory.items()):
-            raise RuntimeError("Shortening changed persistent memory; review required")
+    try:
+        bundle = collect(run, manifest, config)
+        if stage == "collect":
+            return
+        selection = triage(run, bundle, config)
+        if stage == "triage":
+            return
+        images = images_for(run, selection, config)
+        previous = prior_record(parse(manifest["end"]))
+        if previous:
+            provenance.verify(previous)
+        memory = read(previous / "source/memory-after.json", {"account_notes": [], "calls": []}) if previous else {"account_notes": [], "calls": []}
+        symbols = {"SPY", "QQQ", "IWM"}
+        symbols.update(s for p in selection["posts"] if p["relevant"] for s in p["symbols"] if SYMBOL.fullmatch(s))
+        symbols.update(c["symbol"] for c in memory["calls"] if c["status"] == "pending")
+        market = market_data(run, symbols, manifest)
+        previous_macro = read(previous / "source/macro.json", {}) if previous else {}
+        macro = macro_data.collect(run, parse(manifest["end"]), previous_macro,
+                                   historical_source=previous / "source" if historical and previous else None,
+                                   historical=historical)
+        if (run / "memory-before.json").exists():
+            memory = read(run / "memory-before.json")
+        else:
+            save(run / "memory-incoming.json", memory)
+            memory = evaluate(memory, market)
+            save(run / "memory-before.json", memory)
+        if stage == "market":
+            return
+        if not (run / "live-before.json").exists():
+            context = live_memory.context(WORK, cutoff=parse(manifest["end"]))
+            context["current_view"] = read(previous / "source/live-after.json", {}) if previous else {}
+            save(run / "live-before.json", context)
+        live_before = read(run / "live-before.json")
+        data = {"posts": bundle, "triage": selection, "images": images, "market": compact_market(market),
+                "memory": memory_view(memory), "accounts": list(ACCOUNTS.values()), "macro": macro, "live_memory": live_before,
+                "word_budget": layout_brief({"paragraphs": []}, manifest)[1], "collection_window": manifest,
+                "historical_policy": "Use only evidence available by the collection cutoff. Later retrieval is a retrospective reconstruction. Do not use later market outcomes or newer memory. Explicitly date stale macro snapshots; missing historical releases remain unverified."}
+        result = agent(run, "brief", SYNTHESIS, data, BRIEF, config, [p["path"] for p in images["photos"]])
         verify_brief(result, bundle, macro_required=True, macro=macro)
-    else:
-        raise RuntimeError("Brief still exceeds 480 total words; no PDF published")
-    provenance.validate_claims(result, bundle, market, macro)
-    memory = next_memory(memory, result, bundle, market, manifest)
-    if historical:
-        for call in memory["calls"]:
-            if call.get("captured_at") == manifest["end"]:
-                call.update(status="context_only", reconstructed_at=stamp(current))
-    save(run / "memory-after.json", memory)
-    save(run / "final.json", result)
-    save(run / "live-after.json", {"as_of": manifest["end"], "record": run.name,
-         "previous_record": live_before.get("current_view", {}).get("record"), "view": result["market_view"]})
-    provenance.archive(run, candidate, WORK)
-    publish_record(WORK / "provenance" / record_id, due_day)
-    print(f"Published {output}", flush=True)
+        output = ROOT / (record_id + "-market-brief.pdf")
+        candidate = run / output.name
+        for attempt in range(4):
+            _, metrics = layout_brief(result, manifest)
+            save(run / "layout.json", metrics)
+            if render(result, manifest, candidate):
+                break
+            if attempt == 3:
+                raise RuntimeError("Brief still exceeds 480 total words; no PDF published")
+            prior_memory = {k: result[k] for k in ("market_view", "account_memory", "new_calls")}
+            result = agent(run, f"shorten-{attempt}", SYNTHESIS + "\nThe supplied draft exceeds 480 total words. "
+                f"Remove at least {metrics['excess_words']} words from its paragraphs. "
+                "Preserve useful conditions and uncertainty; update claim mappings. Keep market_view, account_memory and new_calls unchanged.",
+                {"draft": result, "word_budget": metrics}, BRIEF, config)
+            if any(result[k] != value for k, value in prior_memory.items()):
+                raise RuntimeError("Shortening changed persistent memory; review required")
+            verify_brief(result, bundle, macro_required=True, macro=macro)
+        else:
+            raise RuntimeError("Brief still exceeds 480 total words; no PDF published")
+        provenance.validate_claims(result, bundle, market, macro)
+        memory = next_memory(memory, result, bundle, market, manifest)
+        if historical:
+            for call in memory["calls"]:
+                if call.get("captured_at") == manifest["end"]:
+                    call.update(status="context_only", reconstructed_at=stamp(current))
+        save(run / "memory-after.json", memory)
+        save(run / "final.json", result)
+        save(run / "live-after.json", {"as_of": manifest["end"], "record": run.name,
+             "previous_record": live_before.get("current_view", {}).get("record"), "view": result["market_view"]})
+        provenance.archive(run, candidate, WORK)
+        publish_record(WORK / "provenance" / record_id, due_day)
+        print(f"Published {output}", flush=True)
+    except Exception as error:
+        reject_cached_draft(run, error)
+        raise
 
 
 def pending_days(config, current):
@@ -978,7 +983,7 @@ def pending_days(config, current):
             metadata = read(record / "record.json", {})
         except (ValueError, OSError):
             metadata = {}
-        if metadata:
+        if metadata and not metadata.get("window", {}).get("ad_hoc"):
             day = metadata.get("window", {}).get("due_day", record.name[:10])
             old = completed.get(day)
             if old is None or metadata.get("archived_at", "") > old[0]:
@@ -1103,7 +1108,6 @@ def run_pending(force=False):
             queue["days"][day] = {"state": "complete", "completed_at": stamp(now())}
             queue["pending_days"].remove(day)
         except Exception as error:
-            reject_cached_draft(WORK / "runs" / day, error)
             failed(day, "report", error)
         persist()
     queue["pending_days"] = pending_days(config, now())
@@ -1120,9 +1124,9 @@ def run_pending(force=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog="Setup and demo commands: --setup, --credentials, --resolve-accounts, --check, --smoke-engine, --schedule, --unschedule, --demo. Use --setup --help for their options; see docs/setup.md for the walkthrough.")
     parser.add_argument("--scheduled", action="store_true")
-    parser.add_argument("--test-run", action="store_true", help="Explicitly retrieve fresh data and publish a new revision even if today is complete")
+    parser.add_argument("--test-run", action="store_true", help="Retrieve a fresh rolling 24-hour snapshot; does not complete a scheduled daily window")
     parser.add_argument("--backfill", action="store_true", help="Retry every unfinished due date immediately, preserving each historical cutoff")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--verify-provenance", metavar="YYYY-MM-DD[-rN]")

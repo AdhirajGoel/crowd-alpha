@@ -1,5 +1,7 @@
 """Replay synthetic inputs through the report, evidence archive, and memory pipeline."""
 import json
+import shlex
+import sys
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -64,4 +66,7 @@ def run():
                                   'evidence_files':[str(record/'source/posts.json')]})
         assert len(m.live_memory.context(work)['discussion_notes'])==1
     print(f'Synthetic replay passed: PDF, {count} archived files, market view and discussion memory.')
+    print(f'Demo state: {work}')
+    print(f'Evidence index: {record / "index.html"}')
+    print('Read demo memory: ' + shlex.join(['env', 'CROWD_ALPHA_HOME='+str(work), sys.executable, str(m.CODE/'live_memory.py')]))
     return reports/'2026-10-30-market-brief.pdf'

@@ -63,3 +63,12 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, 'WORK', Path(tmp)), \
         else: raise AssertionError('Retry exceeded budget')
         assert fetch.call_count == 1 and m.read(ledger)[month] == 30.0
 print('PASS: transient X, image and Alpaca retries preserve evidence and spending limits')
+
+with tempfile.TemporaryDirectory() as tmp, patch.object(m, 'secret', return_value='synthetic'), \
+     patch.object(m, 'now', return_value=m.parse('2026-10-30T17:00:00Z')), \
+     patch.object(m, 'request', return_value={'bars':{'SPY':[{'t':'2026-10-30T04:00:00Z','c':100}]}}):
+    try:m.market_data(Path(tmp), {'SPY'}, {'end':'2026-10-30T17:00:00Z'})
+    except RuntimeError as error:assert 'completed SPY' in str(error)
+    else:raise AssertionError('Empty completed-session market accepted')
+    assert not (Path(tmp) / 'market.json').exists()
+print('PASS: provisional SPY bars cannot satisfy completed-session requirement')

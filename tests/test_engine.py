@@ -38,3 +38,30 @@ with tempfile.TemporaryDirectory() as tmp:
         except engine.jsonschema.ValidationError:pass
         else:raise AssertionError('Invalid cached output accepted')
 print('PASS: both CLI adapters, isolation, structured validation and cache reuse')
+
+# Cancellation and timeout both stop the process group before releasing the caller.
+for failure in (KeyboardInterrupt(), engine.subprocess.TimeoutExpired('synthetic', 3600)):
+    with tempfile.TemporaryDirectory() as tmp:
+        run = Path(tmp)
+        class InterruptedProcess:
+            pid = 123456
+            returncode = None
+            calls = 0
+            def __init__(self, *args, **kwargs):pass
+            def communicate(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    (run / 'brief.json').write_text('{"partial":true}')
+                    raise failure
+                self.returncode = -15
+                return '', None
+        config = {'engine':'codex', 'executable':'synthetic', 'model':'synthetic'}
+        with patch.object(engine, 'resolve', return_value=(config, 'synthetic')), \
+             patch.object(engine.subprocess, 'Popen', InterruptedProcess), \
+             patch.object(engine.os, 'killpg') as stop:
+            try:engine.generate(run, 'brief', 'test', {}, schema, config)
+            except (KeyboardInterrupt, RuntimeError):pass
+            else:raise AssertionError('Interrupted generation succeeded')
+            stop.assert_called_once_with(123456, engine.signal.SIGTERM)
+            assert not (run / 'brief.json').exists()
+print('PASS: cancellation and timeout stop generation and discard partial output')

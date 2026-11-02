@@ -204,7 +204,7 @@ def collect(run, cutoff, previous=None, historical_source=None, historical=False
                     "unchanged" if v == previous["fingerprints"][k] else "changed") for k, v in fingerprints.items()}
     result = {"as_of": cutoff.isoformat(), "sources": sources, "errors": errors,
               "fingerprints": fingerprints, "changes_since_previous_brief": changes,
-              "previous_record": previous,
+              "previous_record": {k: v for k, v in previous.items() if k != "previous_record"},
               "limitations": "Daily par yields are benchmarks, not ETF prices or live executable yields. Inflation periods and release dates differ. No futures-implied Fed probabilities collected. Latest web pages are snapshots at retrieval, not point-in-time historical reconstructions."}
     if historical:
         result["limitations"] += " Retrospective report: Treasury rows and Fed/PCE publication dates are cutoff-filtered; CPI uses a saved pre-cutoff snapshot and may omit intervening releases. Later revisions cannot be excluded from newly retrieved historical data. Do not describe a saved older release as the latest unless independently established."

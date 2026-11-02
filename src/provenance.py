@@ -177,11 +177,11 @@ def archive(run, pdf, work):
 
         limitations = []
         if not list(source.glob("alpaca-page-*.json")):
-            limitations.append("This trial predates full request logging. market.json preserves the actual retained Alpaca bars, but original response envelopes and exact request times were not saved.")
+            limitations.append("No Alpaca response envelopes are included. market.json contains the retained rows and identifies their feed.")
         if not list(source.glob("*.request.json")):
-            limitations.append("Original X response JSON is preserved; exact request metadata was not recorded for this trial. manifest.json records its collection window.")
+            limitations.append("No X request metadata is included. posts.json contains the retained posts; manifest.json records the collection window.")
         if not (source / "runtime").exists():
-            limitations.append("No contemporaneous runtime snapshot was captured; the trial prompts, schemas, model logs, and outputs remain available.")
+            limitations.append("No contemporaneous runtime snapshot is included. Inspect the source directory for the evidence and generation records retained by this run.")
         if (source / "provenance-audit.json").exists():
             limitations.append("This trial's claim mapping was generated retrospectively against the published text and saved evidence. It is not a record of the original model's internal reasoning.")
         write(folder / "record.json", {"version": 1, "archived_at": datetime.now(timezone.utc).isoformat(),

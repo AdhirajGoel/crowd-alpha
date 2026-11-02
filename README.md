@@ -32,7 +32,7 @@ python3 -m venv .venv
 .venv/bin/python crowd_alpha.py --demo
 ```
 
-The demo replays synthetic inputs and a supplied example synthesis through the real PDF, evidence-archive and memory code. It makes no network or model calls. Generated files appear under `.local/demos/`.
+The demo replays synthetic inputs and a supplied example synthesis through the real PDF, evidence-archive and memory code. It makes no network or model calls. Generated files appear under `.local/demos/`. The command prints the PDF, evidence index and exact command to read its saved view and discussion memory.
 
 ## Research interactively
 

@@ -75,12 +75,16 @@ def generate(run,name,instruction,data,schema,config,images=()):
                                   cwd=tmp,env=env,start_new_session=True)
             try:
                 stdout,_=proc.communicate(payload,timeout=3600)
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid,signal.SIGTERM)
+            except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+                try:os.killpg(proc.pid,signal.SIGTERM)
+                except ProcessLookupError:pass
                 try:proc.communicate(timeout=10)
                 except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid,signal.SIGKILL);proc.communicate()
+                    try:os.killpg(proc.pid,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                    proc.communicate()
                 output.unlink(missing_ok=True)
+                if isinstance(error, KeyboardInterrupt):raise
                 raise RuntimeError('Generation timed out; source evidence is retained') from None
         if proc.returncode:
             (run/(name+"-failure.txt")).write_text(stdout)

@@ -18,7 +18,7 @@ python3 -m venv .venv
 .venv/bin/python crowd_alpha.py --demo
 ```
 
-Open the resulting PDF and explain that the demo uses supplied synthetic inputs and synthesis. It verifies local reporting and memory without consuming API or model allowance.
+Open the resulting PDF and explain that the demo uses supplied synthetic inputs and synthesis. It verifies local reporting and memory without consuming API or model allowance. The command prints the evidence index and an exact command to read that demo’s saved view and question. Use its printed `CROWD_ALPHA_HOME` when discussing the demo; the default memory command reads the separate live installation.
 
 ## 3. Configure the installation
 
@@ -58,7 +58,7 @@ After the user authorizes the X lookup, resolve their handles into a local ID ma
 .venv/bin/python crowd_alpha.py
 ```
 
-The account lookup consumes X API resources. `--check` validates local configuration, dependencies, CLI availability and credential presence without a network request. `--smoke-engine` makes a small structured-generation call with the selected model. The final command collects live sources and produces the first report, using the configured X ceiling and the engine's allowance.
+The account lookup consumes X API resources. `--check` validates local configuration, dependencies, CLI availability and credential presence without a network request. `--smoke-engine` makes a small structured-generation call with the selected model. The final command collects live sources for the latest completed daily window ending at the configured report hour, using the configured X ceiling and the engine's allowance. Before that hour, it reports the previous day. Use `--test-run` for a rolling 24-hour snapshot ending now; its separate PDF and archive do not mark a scheduled day complete.
 
 Verify the PDF, the dated evidence archive, and `.local/status.json`. Run `--verify-provenance YYYY-MM-DD` for the resulting date. Do not describe a mocked or offline check as a live provider check.
 
@@ -78,9 +78,9 @@ Follow [integrations.md](integrations.md) for optional interactive TradingView a
 
 | Task | Command or location |
 | --- | --- |
-| Run today's brief | `.venv/bin/python crowd_alpha.py` |
+| Run the latest completed daily window | `.venv/bin/python crowd_alpha.py` |
 | Retry unfinished dates | `.venv/bin/python crowd_alpha.py --backfill` |
-| Explicitly create a fresh revision | `.venv/bin/python crowd_alpha.py --test-run` |
+| Create a fresh rolling 24-hour snapshot | `.venv/bin/python crowd_alpha.py --test-run` |
 | Read recent X posts | `.venv/bin/python src/query_x.py --hours 6` |
 | Read analyst memory | `.venv/bin/python src/live_memory.py` |
 | Verify an archive | `.venv/bin/python crowd_alpha.py --verify-provenance YYYY-MM-DD` |

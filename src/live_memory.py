@@ -18,9 +18,11 @@ def save(path, value):
     temp.replace(path)
 
 
-def context(work):
+def context(work, cutoff=None):
     folder = work/'live'
     notes = [read(p) for p in sorted((folder/'conversations').glob('*.json'))]
+    if cutoff is not None:
+        notes = [n for n in notes if datetime.fromisoformat(n['recorded_at'].replace('Z', '+00:00')) <= cutoff]
     superseded = {i for note in notes for i in note.get('supersedes', [])}
     active = [note for note in notes if note['id'] not in superseded]
     return {'current_view': read(folder/'current.json', {}), 'discussion_notes': active,

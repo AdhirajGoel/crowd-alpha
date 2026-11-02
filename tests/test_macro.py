@@ -88,3 +88,13 @@ with tempfile.TemporaryDirectory() as tmp:
             assert by_id['pce']['text'] == 'OLD' if day == 29 else 'NEW' in by_id['pce']['text']
             assert (run / by_id['pce']['raw_file']).is_file()
 print('PASS: pre-cutoff CPI snapshots, future PCE exclusion, release-day PCE inclusion, retained source files')
+
+# Keep only the immediately preceding snapshot; archived history stays on disk.
+with tempfile.TemporaryDirectory() as tmp, patch.object(m.urllib.request, 'urlopen', side_effect=OSError('offline')):
+    previous = {'sources':[old], 'fingerprints':{}, 'previous_record':{'sources':[fresh]}}
+    for day in range(3):
+        result = m.collect(Path(tmp) / str(day), datetime(2026, 10, day + 1, tzinfo=timezone.utc), previous)
+        assert result['previous_record'] == {k:v for k,v in previous.items() if k != 'previous_record'}
+        assert 'previous_record' not in result['previous_record']
+        previous = result
+print('PASS: bounded macro context retains one previous snapshot')
