@@ -32,3 +32,14 @@ The design preserves disagreement and conditions instead of treating repeated co
 | `src/demo.py` | Offline synthetic replay |
 
 The engine adapters follow the official [Codex non-interactive interface](https://developers.openai.com/codex/noninteractive) and [Claude Code programmatic interface](https://code.claude.com/docs/en/headless). They reuse the user's authenticated CLI, request structured output, and keep X/Alpaca credentials out of the generation process environment. Claude generation disables tools and customizations; Codex uses an isolated directory, ignored user configuration and a read-only sandbox.
+
+## Development
+
+Use Python 3.11+ on macOS. Install `requirements-dev.txt` from the repository directory, then run the offline checks:
+
+```sh
+.venv/bin/python tests/run_tests.py
+.venv/bin/python crowd_alpha.py --self-check
+```
+
+Use synthetic fixtures when changing collection, generation or memory behavior. The setup walkthrough and demo commands are in [setup.md](setup.md).

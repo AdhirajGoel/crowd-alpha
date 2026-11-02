@@ -210,7 +210,7 @@ def archive(run, pdf, work):
                 relative = p.relative_to(folder).as_posix()
                 body += f'<li><a href="{esc(relative)}">{esc(relative)}</a></li>'
         body += '</ul><p><a href="integrity.json">SHA-256 file manifest</a> | <a href="record.json">Archive metadata and limitations</a></p>'
-        page(folder / "index.html", "Market brief evidence — " + run.name, body)
+        page(folder / "index.html", "Crowd Alpha evidence - " + run.name, body)
         write(folder / "integrity.json", {"sha256": {p.relative_to(folder).as_posix(): digest(p)
               for p in sorted(folder.rglob("*")) if p.is_file()}})
         verify(folder)

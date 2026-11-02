@@ -2,19 +2,11 @@
 
 **Market intelligence from the people you follow.**
 
-Useful market commentary is scattered across X threads, Discord conversations and charts. Crowd Alpha connects the accounts you choose with price data and macro releases, builds a concise daily view, and remembers the questions and competing theses worth following.
+Crowd Alpha reads the X accounts you choose, combines their posts and charts with Alpaca prices and official macro releases, and produces a daily brief with a local evidence archive. Saved views and discussion notes let you follow competing theses and open questions across reports.
 
-Run it with Codex or Claude Code on macOS. Bring your own X API access and Alpaca market-data credentials; connect TradingView and Discord when you want to research an idea further.
+[Example brief (PDF)](docs/assets/demo-brief.pdf), produced by the included demo with fictional sources, prices and assessment.
 
-![A Crowd Alpha brief produced by the offline synthetic demonstration](docs/assets/demo-brief.png)
-*Actual PDF output from the included synthetic demo. The sources, prices and assessment in this example are fictional.*
-
-## From scattered posts to a market view
-
-- **Read across sources.** Collect posts from your chosen X accounts, retrieve referenced context, and select relevant still-image charts for analysis.
-- **Check the evidence.** Compare commentary with Alpaca stock/ETF prices and dated Treasury, inflation and Federal Reserve releases. Every brief has a local evidence archive.
-- **Keep context.** Carry forward source notes, competing views, conditions and unanswered questions. Resume the conversation in Codex or Claude Code with the saved memory.
-- **Run consistently.** Cache completed retrievals and model stages, reserve X spending before requests, and recover missing daily reports without overwriting newer memory.
+Run it with Codex or Claude Code on macOS. Live use requires your own X API access, Alpaca market-data credentials and access to the selected generation engine.
 
 ## Set it up with your agent
 
@@ -22,9 +14,11 @@ Give Codex or Claude Code the repository URL and this instruction:
 
 > Set up Crowd Alpha on my Mac. Read AGENTS.md and follow docs/setup.md. Ask me for my source accounts, engine, spending limit and schedule, help me configure credentials locally, and verify the installation before enabling scheduled collection.
 
-The setup agent handles installation and configuration. You sign in to your chosen engine and enter secrets in your terminal. Your account roster, credentials and generated research stay out of Git.
+You sign in to your chosen engine and enter secrets in your terminal. Your account roster, credentials and generated research stay out of Git.
 
-To try the offline demo yourself:
+## Try the demo
+
+From the repository directory, with Python 3.11 or newer:
 
 ```sh
 python3 -m venv .venv
@@ -32,21 +26,10 @@ python3 -m venv .venv
 .venv/bin/python crowd_alpha.py --demo
 ```
 
-The demo replays synthetic inputs and a supplied example synthesis through the real PDF, evidence-archive and memory code. It makes no network or model calls. Generated files appear under `.local/demos/`. The command prints the PDF, evidence index and exact command to read its saved view and discussion memory.
+The demo replays synthetic inputs and a supplied example synthesis through the PDF, evidence-archive and memory code, without network or model calls. It prints the output paths and the command to read its saved view and discussion memory.
 
-## Research interactively
+For interactive research, ask your agent about the saved view or authorize a fresh X lookup. Optional TradingView and Discord connections let the agent inspect charts and conversations alongside that evidence; they are separate from the daily pipeline.
 
-Open this repository in your agent and ask a question about the saved market view. The agent can retrieve fresh X posts when you authorize a lookup. Optional TradingView and Discord connections let it compare charts and discussion with the saved evidence; those integrations are used interactively and are not required by the daily job.
-
-[Setup and commands](docs/setup.md) · [Optional integrations](docs/integrations.md) · [How it works](docs/design.md)
-
-## Development
-
-Python 3.11+ on macOS. Install `requirements-dev.txt`, then run:
-
-```sh
-.venv/bin/python tests/run_tests.py
-.venv/bin/python crowd_alpha.py --self-check
-```
+[Setup and commands](docs/setup.md) · [Optional integrations](docs/integrations.md) · [Design and development](docs/design.md)
 
 MIT licensed. This is a static release of a personal research workflow built with AI coding tools.

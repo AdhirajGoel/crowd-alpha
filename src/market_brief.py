@@ -556,7 +556,7 @@ where appropriate. Round quoted stock prices to cents. Use the configured accoun
 Avoid boilerplate disclaimers, decorative formatting,
 mechanical recaps, hype, and repeated rhetorical contrasts. Include material missing/stale-data limitations
 briefly if they affect the conclusion. Evidence IDs go ONLY into evidence_ids, never in the prose. This list may contain supplied post IDs or macro source IDs; claim-level references must use the appropriate post_ids or web_source_ids field.
-Visuals may be omitted: the reader has TradingView. Communicate source-chart insights in text.
+Communicate source-chart insights in text; chart images need not appear in the brief.
 
 Always include one brief paragraph headed <b>Bonds, inflation & Fed:</b>, usually 2-3 sentences
 (roughly 40-70 words). Use the supplied official web snapshots: 2-, 5-, and 10-year Treasury par yields,
@@ -1011,7 +1011,7 @@ def notify_failure(day, error):
     message = f"{day} report pending: {str(error)[:230]}. Automatic retries continue; see .local/queue.json."
     try:
         result = subprocess.run(["/usr/bin/osascript", "-e", "display notification " + json.dumps(message, ensure_ascii=False)
-                        + ' with title "Market Brief needs attention"'], capture_output=True, timeout=15)
+                        + ' with title "Crowd Alpha needs attention"'], capture_output=True, timeout=15)
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False  # A notification failure must not stop source capture or later days.
@@ -1163,7 +1163,7 @@ def main():
             status = read(WORK / "status.json", {})
             status.update(state="failed", failed_at=stamp(now()), error=str(e)[:400])
             save(WORK / "status.json", status)
-            print(f"Market brief failed: {e}", file=sys.stderr, flush=True)
+            print(f"Crowd Alpha failed: {e}", file=sys.stderr, flush=True)
             notice = status.get("runner_notice", {})
             if not args.backfill and (notice.get("error") != str(e)[:400] or not notice.get("at")
                     or now() - parse(notice["at"]) >= timedelta(days=1)):

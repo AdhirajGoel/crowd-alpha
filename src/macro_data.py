@@ -93,7 +93,7 @@ def collect(run, cutoff, previous=None, historical_source=None, historical=False
     def fetch(name, url, body=None):
         if urllib.parse.urlparse(url).scheme != "https" or urllib.parse.urlparse(url).hostname not in HOSTS:
             raise ValueError("Unexpected macro source host")
-        headers = {"User-Agent": "personal-market-brief/1"}
+        headers = {"User-Agent": "crowd-alpha/1"}
         payload = None
         if body is not None:
             headers["Content-Type"] = "application/json"
