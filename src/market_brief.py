@@ -113,6 +113,43 @@ def budget_reserve(ledger, month, amount, limit):
     ledger[month] = round(used + amount, 6)
 
 
+def x_resources(data, path):
+    """Validate provider envelopes before treating resource counts as billable facts."""
+    if not isinstance(data, dict):
+        raise RuntimeError("Malformed X response; reservation retained")
+    posts, includes, errors = data.get("data", []), data.get("includes", {}), data.get("errors", [])
+    if (not isinstance(posts, list) or not isinstance(includes, dict) or not isinstance(errors, list)
+            or any(not isinstance(p, dict) or not isinstance(p.get("id"), str) or not p["id"] for p in posts)
+            or any(not isinstance(e, dict) for e in errors)
+            or any(not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows)
+                   for rows in includes.values())):
+        raise RuntimeError("Malformed X response; reservation retained")
+    if path == "/tweets/search/recent":
+        if errors:
+            raise RuntimeError("X returned partial search errors; cannot claim complete coverage; reservation retained")
+        meta = data.get("meta")
+        if (not isinstance(meta, dict) or type(meta.get("result_count")) is not int
+                or meta["result_count"] != len(posts)
+                or ("next_token" in meta and (not isinstance(meta["next_token"], str) or not meta["next_token"]))
+                or any(not isinstance(p.get(key), str) for p in posts for key in ("author_id", "created_at", "text"))):
+            raise RuntimeError("Malformed X search response; reservation retained")
+    elif "data" not in data and not errors:
+        raise RuntimeError("Malformed X lookup response; reservation retained")
+    return len(posts) + sum(len(rows) for rows in includes.values())
+
+
+def reject_x_response(cache):
+    if not cache.exists():
+        return
+    rejected = cache.parent / "rejected-responses"
+    rejected.mkdir(exist_ok=True)
+    destination = Path(tempfile.mkdtemp(prefix=cache.stem + "-", dir=rejected))
+    shutil.move(str(cache), destination / cache.name)
+    metadata = cache.with_suffix(".request.json")
+    if metadata.exists():
+        shutil.move(str(metadata), destination / metadata.name)
+
+
 class XReader:
     def __init__(self, config):
         self.token = secret("x")
@@ -138,9 +175,13 @@ class XReader:
                     time.sleep(min(30, 2 ** (attempt + 1)))
                     continue
                 raise RuntimeError(f"X retrieval failed ({code or 'network error'}); budget reservation retained") from None
-            actual = len(result.get("data", [])) + sum(len(v) for v in result.get("includes", {}).values())
-            if actual > maximum:
-                raise RuntimeError("Unexpected X resource count; reservation retained; inspect before retry")
+            try:
+                actual = x_resources(result, path)
+                if actual > maximum:
+                    raise RuntimeError("Unexpected X resource count; reservation retained; inspect before retry")
+            except RuntimeError:
+                reject_x_response(record)
+                raise
             ledger[month] = round(ledger[month] - reserve + actual * cost, 6)
             save(ledger_path, ledger)
             return result
@@ -157,6 +198,15 @@ def normalize(post):
     }
 
 
+def valid_cached_source(path):
+    if path.parent.parent.parent == WORK / "provenance":
+        try:
+            provenance.verify(path.parent.parent)
+        except (RuntimeError, ValueError, KeyError, OSError, TypeError, AttributeError):
+            return False
+    return True
+
+
 def cached_context(run, wanted, cutoff):
     """Reuse exact-ID historical text, never substitute cached posts for a fresh search."""
     context, sources = {}, []
@@ -168,7 +218,7 @@ def cached_context(run, wanted, cutoff):
     for path in paths:
         if not wanted - context.keys():
             break
-        if path.parent == run:
+        if path.parent == run or not valid_cached_source(path):
             continue
         bundle = read(path)
         if not bundle.get("end") or parse(bundle["end"]) > parse(cutoff):
@@ -194,8 +244,12 @@ def collect(run, manifest, config, accounts=None):
     posts, token, page = {}, None, 0
     while True:
         cache = run / f"x-page-{page:03}.json"
-        data = read(cache)
-        if data is None:
+        try:
+            data = read(cache)
+        except ValueError:
+            reject_x_response(cache)
+            raise RuntimeError("Malformed X cached search JSON; reservation retained") from None
+        if not cache.exists():
             if api is None:
                 api = XReader(config)
             params = {"query": "(" + " OR ".join("from:" + a for a in accounts.values()) + ")",
@@ -204,17 +258,11 @@ def collect(run, manifest, config, accounts=None):
             if token:
                 params["next_token"] = token
             data = api.get("/tweets/search/recent", params, 100, cache)
-        if data.get("errors"):
-            # Keep the failed response for diagnosis, but do not replay it forever.
-            rejected = run / "rejected-responses"
-            rejected.mkdir(exist_ok=True)
-            destination = Path(tempfile.mkdtemp(prefix=cache.stem + "-", dir=rejected))
-            save(destination / cache.name, data)
-            cache.unlink(missing_ok=True)
-            metadata = cache.with_suffix(".request.json")
-            if metadata.exists():
-                shutil.move(str(metadata), destination / metadata.name)
-            raise RuntimeError("X returned partial search errors; cannot claim complete coverage")
+        try:
+            x_resources(data, "/tweets/search/recent")
+        except RuntimeError:
+            reject_x_response(cache)
+            raise
         for p in data.get("data", []):
             if p.get("author_id") not in accounts:
                 raise RuntimeError("Account ID differs from saved roster; verify the handle before proceeding")
@@ -314,8 +362,10 @@ def cached_photos(run, wanted):
     for path in paths:
         if not wanted.keys() - photos.keys():
             break
+        if path.parent == run or not valid_cached_source(path):
+            continue
         source_cutoff = read(path.parent / "manifest.json", {}).get("end")
-        if path.parent == run or not source_cutoff or parse(source_cutoff) > parse(cutoff):
+        if not source_cutoff or parse(source_cutoff) > parse(cutoff):
             continue
         reused = []
         for photo in read(path).get("photos", []):
@@ -417,12 +467,32 @@ def images_for(run, selection, config):
     return result
 
 
+def completed_market_bars(bars, start, end):
+    # Apply the timestamp window independently of the completed-session cutoff.
+    current = end.astimezone(ET)
+    result = {}
+    for symbol, values in bars.items():
+        rows = {b["t"]: b for b in values if start <= parse(b["t"]) <= end
+                and (parse(b["t"]).astimezone(ET).date() < current.date() or current.hour >= 16)}
+        if rows:
+            result[symbol] = sorted(rows.values(), key=lambda b: b["t"])
+    if not result.get("SPY"):
+        raise RuntimeError("Alpaca returned no completed SPY bars; market data cannot be verified")
+    return result
+
+
 def market_data(run, symbols, manifest):
     target = run / "market.json"
-    if target.exists():
-        return read(target)
-    headers = {"APCA-API-KEY-ID": secret("key"), "APCA-API-SECRET-KEY": secret("secret")}
     end = min(parse(manifest["end"]), now() - timedelta(minutes=16))
+    if target.exists():
+        result = read(target)
+        end = min(end, parse(result["as_of"]))
+        bars = completed_market_bars(result["bars"], end - timedelta(days=120), end)
+        updated = dict(result, bars=bars, as_of=stamp(end), missing_symbols=sorted(symbols - bars.keys()))
+        if updated != result:
+            save(target, updated)
+        return updated
+    headers = {"APCA-API-KEY-ID": secret("key"), "APCA-API-SECRET-KEY": secret("secret")}
     start = end - timedelta(days=120)
     feed, bars, page_token = "sip", {}, None
     for page in range(200):
@@ -454,15 +524,7 @@ def market_data(run, symbols, manifest):
             break
     else:
         raise RuntimeError("Alpaca pagination exceeded expected bounds")
-    # Exclude the current session until regular trading has closed. Retain provider timestamps.
-    current = end.astimezone(ET)
-    today = current.date()
-    for symbol in bars:
-        bars[symbol] = sorted({b["t"]: b for b in bars[symbol]
-            if parse(b["t"]).astimezone(ET).date() < today or current.hour >= 16}.values(), key=lambda b: b["t"])
-    bars = {symbol: values for symbol, values in bars.items() if values}
-    if not bars.get("SPY"):
-        raise RuntimeError("Alpaca returned no completed SPY bars; market data cannot be verified")
+    bars = completed_market_bars(bars, start, end)
     result = {"feed": feed, "adjustment": "all", "as_of": stamp(end), "bars": bars,
               "missing_symbols": sorted(symbols - bars.keys()),
               "limitations": "Adjusted daily OHLC; unavailable symbols remain unverified. No option P&L or intraday trigger ordering inferred."}

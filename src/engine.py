@@ -73,9 +73,12 @@ def generate(run,name,instruction,data,schema,config,images=()):
         with (run/(name+'-agent.log')).open('w') as log:
             proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=log,text=True,
                                   cwd=tmp,env=env,start_new_session=True)
+            def terminate(signum, frame):
+                raise SystemExit(128 + signum)
+            previous_handler = signal.signal(signal.SIGTERM, terminate)
             try:
                 stdout,_=proc.communicate(payload,timeout=3600)
-            except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+            except (subprocess.TimeoutExpired, KeyboardInterrupt, SystemExit) as error:
                 try:os.killpg(proc.pid,signal.SIGTERM)
                 except ProcessLookupError:pass
                 try:proc.communicate(timeout=10)
@@ -84,8 +87,10 @@ def generate(run,name,instruction,data,schema,config,images=()):
                     except ProcessLookupError:pass
                     proc.communicate()
                 output.unlink(missing_ok=True)
-                if isinstance(error, KeyboardInterrupt):raise
+                if isinstance(error, (KeyboardInterrupt, SystemExit)):raise
                 raise RuntimeError('Generation timed out; source evidence is retained') from None
+            finally:
+                signal.signal(signal.SIGTERM, previous_handler)
         if proc.returncode:
             (run/(name+"-failure.txt")).write_text(stdout)
             output.unlink(missing_ok=True)

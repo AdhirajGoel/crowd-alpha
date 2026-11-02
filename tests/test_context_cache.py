@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, "WORK", Path(tmp)):
     work = Path(tmp)
     old = work / "provenance/2026-10-01/source/posts.json"
     m.save(old, {"end": "2026-10-01T23:59:40Z", "posts": [m.normalize(post("10"))], "context": []})
+    m.save(old.parent.parent / "integrity.json", {"sha256": {"source/posts.json": m.provenance.digest(old)}})
     old_bytes = old.read_bytes()
     # A later report and a post created after the cutoff must not leak into a backfill.
     m.save(work / "runs/2026-10-03/posts.json", {"end": "2026-10-03T23:59:40Z",
@@ -22,7 +23,7 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, "WORK", Path(tmp)):
            "posts": [m.normalize(post("11", created="2026-10-03T00:00:00Z"))], "context": []})
     run = work / "runs/2026-10-02"
     manifest = {"start": "2026-10-01T23:59:40Z", "end": "2026-10-02T23:59:40Z"}
-    m.save(run / "x-page-000.json", {"data": [post("20", refs=("10", "11"))]})
+    m.save(run / "x-page-000.json", {"data": [post("20", refs=("10", "11"))], "meta": {"result_count": 1}})
     with patch.object(m, "secret", return_value="test"), \
          patch.object(m.XReader, "get", return_value={"data": [post("11")]}) as fetch:
         bundle = m.collect(run, manifest, {})
@@ -45,13 +46,13 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, "WORK", Path(tmp)):
     # New windows still perform a primary search, while known parent text is reused.
     fresh = work / "live/queries/fresh"
     with patch.object(m, "secret", return_value="test"), \
-         patch.object(m.XReader, "get", return_value={"data": [post("21", refs=("10",))]}) as fetch:
+         patch.object(m.XReader, "get", return_value={"data": [post("21", refs=("10",))], "meta": {"result_count": 1}}) as fetch:
         bundle = m.collect(fresh, manifest, {})
         assert fetch.call_count == 1 and fetch.call_args.args[0] == "/tweets/search/recent"
         assert bundle["context"][0]["id"] == "10"
     # Cached empty search results do not trigger requests or credential access.
     empty = work / "runs/empty"
-    m.save(empty / "x-page-000.json", {"data": [], "meta": {}})
+    m.save(empty / "x-page-000.json", {"meta": {"result_count": 0}})
     with patch.object(m, "secret", side_effect=AssertionError("No credentials needed")):
         assert m.collect(empty, manifest, {})["posts"] == []
 
@@ -72,6 +73,9 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, "WORK", Path(tmp)):
     m.save(legacy / "manifest.json", {"end": "2026-09-24T23:59:40Z"})
     m.save(legacy / "images.json", {"photos": [{"path": "/removed/legacy.jpg",
            "post_ids": ["9"], "alt_text": "old chart"}]})
+    for folder in (source, legacy):
+        m.save(folder.parent / "integrity.json", {"sha256": {
+            p.relative_to(folder.parent).as_posix(): m.provenance.digest(p) for p in folder.rglob("*") if p.is_file()}})
     legacy_bytes = (legacy / "images.json").read_bytes()
     def image_run(name, keys):
         run = work / "runs" / name
@@ -111,7 +115,12 @@ with tempfile.TemporaryDirectory() as tmp, patch.object(m, "WORK", Path(tmp)):
         m.save(isolated / "provenance/old/source/images.json", m.read(source / "images.json"))
         bad = isolated / "provenance/old/source/images/photo.jpg"
         bad.parent.mkdir()
-        bad.write_bytes(original.read_bytes() if name == "future" else b"changed")
+        bad.write_bytes(original.read_bytes())
+        record = isolated / "provenance/old"
+        m.save(record / "integrity.json", {"sha256": {
+            p.relative_to(record).as_posix(): m.provenance.digest(p) for p in (record / "source").rglob("*") if p.is_file()}})
+        if name == "corrupt":
+            bad.write_bytes(b"changed")
         with patch.object(m, "WORK", isolated), patch.object(m, "secret", return_value="test"), \
              patch.object(m.XReader, "get", return_value={"data": []}) as fetch:
             result = m.images_for(image_run(name, ["photo"]), selection, {})

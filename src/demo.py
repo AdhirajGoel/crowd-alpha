@@ -28,9 +28,17 @@ def fixtures():
       '<b>Bonds, inflation & Fed:</b> This offline example includes no macro releases. A live brief uses dated Treasury, BLS, BEA and Federal Reserve sources to connect rates and inflation with the market view.']
     claims=[{'paragraph':i,'claim':p.split('</b>')[-1].strip(),'kind':'inference',
              'post_ids':(['1','2'] if i in (2,4,5) else []),'web_source_ids':[],
-             'market_rows':([{'symbol':'SPY','timestamp':'2026-10-30T04:00:00Z'}] if i==3 else []),
+             'market_rows':[],
              'explanation':'Synthetic example; this mapping points to the fixture inputs used by the paragraph.'}
-             for i,p in enumerate(paragraphs,1)]
+             for i,p in enumerate(paragraphs,1) if i != 3]
+    price_rows = [{'symbol':'SPY','timestamp':row['t']} for row in market['bars']['SPY']]
+    claims[2:2] = [
+        {'paragraph':3,'claim':'In the supplied example, SPY rises from 100 to 101.','kind':'observed',
+         'post_ids':[],'web_source_ids':[],'market_rows':price_rows,
+         'explanation':'The synthetic SPY closes are 100 on October 29 and 101 on October 30.'},
+        {'paragraph':3,'claim':'That supports the observation that prices recovered, while leaving the broader participation question open.',
+         'kind':'inference','post_ids':['1','2'],'web_source_ids':[],'market_rows':price_rows,
+         'explanation':'The synthetic price increase supports recovery; the sources disagree about its strength, and no breadth series is supplied.'}]
     result={'paragraphs':paragraphs,'evidence_ids':['1','2'],'claims':claims,
             'account_memory':[{'account':p['author'],'note':'Synthetic source; no performance claim.'} for p in posts],
             'new_calls':[], 'market_view':{'horizons':[{'horizon':h,'thesis':'Rebound needs broader confirmation.',

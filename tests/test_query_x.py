@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as tmp:
         if url.endswith('/tweets'):
             data = {'data': [{'id': '2', 'author_id': 'outside-roster', 'text': 'Referenced context'}]}
         elif params.get('next_token'):
-            data = {'data': [], 'meta': {}}
+            data = {'meta': {'result_count': 0}}
         else:
             assert params['query'] == '(from:demo_source_7)'
             assert params['start_time'] == '2026-09-28T10:59:40Z'
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory() as tmp:
             data = {'data': [{'id': '1', 'author_id': author, 'created_at': '2026-09-28T11:30:00Z',
                              'text': 'A new view', 'referenced_tweets': [{'id': '2', 'type': 'quoted'},
                                                                          {'id': '3', 'type': 'replied_to'}]}],
-                    'meta': {'next_token': 'page2'}}
+                    'meta': {'next_token': 'page2', 'result_count': 1}}
         m.save(record, data)
         return data
 

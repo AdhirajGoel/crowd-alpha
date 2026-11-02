@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert market['feed'] == 'sip' and fetch.call_count == 3
     m.save(run / 'x-page-000.json', {'errors': [{'detail': 'temporary partial search'}]})
     with patch.object(m, 'secret', return_value='test'), \
-         patch.object(m.XReader, 'get', return_value={'data': [], 'meta': {}}) as fetch:
+         patch.object(m.XReader, 'get', return_value={'meta': {'result_count': 0}}) as fetch:
         try: m.collect(run, {'start': '2026-10-01T00:00:00Z', 'end': '2026-10-02T00:00:00Z'}, {})
         except RuntimeError as exc: assert 'partial search' in str(exc)
         else: raise AssertionError('Partial search accepted')
